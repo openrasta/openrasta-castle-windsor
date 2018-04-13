@@ -20,8 +20,10 @@ using OpenRasta.Configuration.MetaModel;
 using OpenRasta.Pipeline;
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 
 namespace OpenRasta.DI.Windsor
 {
@@ -70,23 +72,14 @@ namespace OpenRasta.DI.Windsor
             store.Destruct();
         }
 
+        static ConcurrentDictionary<Type, Type> enumMappings = new ConcurrentDictionary<Type, Type>();
         protected override object ResolveCore(Type serviceType)
         {
-            try
-            {
-                return _windsorContainer.Resolve(serviceType);
-            }
-            catch (ComponentNotFoundException)
-            {
-                if (typeof(IEnumerable).IsAssignableFrom(serviceType))
-                {
-                    var arrayItemType = serviceType.GetCompatibleArrayItemType();
-                    return _windsorContainer.ResolveAll(arrayItemType);
-                }
-
-                throw;
-            }
-
+            var enumType = enumMappings.GetOrAdd(serviceType, type => serviceType.GetCompatibleArrayItemType());
+            
+                return enumType != null
+                    ? _windsorContainer.ResolveAll(enumType)
+                    : _windsorContainer.Resolve(serviceType);
         }
 
         protected override IEnumerable<TService> ResolveAllCore<TService>()
