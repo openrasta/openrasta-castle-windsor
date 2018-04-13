@@ -18,6 +18,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Castle.Windsor" Version="4.1.0" />
-    <PackageReference Include="openrasta-core" Version="2.6.0-preview.1.1328" />
+    <PackageReference Include="openrasta-core" Version="2.6.0-preview.1.1333" />
   </ItemGroup>
 </Project>

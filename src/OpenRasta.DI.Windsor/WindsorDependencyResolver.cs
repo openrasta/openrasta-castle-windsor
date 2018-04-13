@@ -107,11 +107,14 @@ namespace OpenRasta.DI.Windsor
     protected override void AddDependencyInstanceCore(Type serviceType, object instance, DependencyLifetime lifetime)
     {
       string key = Guid.NewGuid().ToString();
-
       lock (ContainerLock)
       {
-        _windsorContainer.Register(Component.For(serviceType).Instance(instance).Named(key).LifeStyle
-          .Is(ConvertLifestyles.ToLifestyleType(lifetime)));
+        _windsorContainer.Register(Component
+          .For(serviceType)
+          .Instance(instance)
+          .Named(key)
+          .IsDefault()
+          .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(lifetime)));
       }
     }
 

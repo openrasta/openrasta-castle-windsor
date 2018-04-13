@@ -39,15 +39,12 @@ namespace WindsorWithHttpListenerHost_Specification
     {
         public void Configure()
         {
-            using (OpenRastaConfiguration.Manual)
-            {
                 ResourceSpace.Has.ResourcesOfType<string>()
                     .AtUri("/").Named("Root")
                     .And.AtUri("/with-header").Named("WithHeader")
                     .HandledBy<TestHandler>()
                     .And.HandledBy<HeaderSettingHandler>()
                     .TranscodedBy<TextPlainCodec>();
-            }
         }
     }
 
@@ -56,7 +53,7 @@ namespace WindsorWithHttpListenerHost_Specification
         [HttpOperation(ForUriName = "Root")]
         public string Get()
         {
-            return "Test Response";
+            return "Test Root Response";
         }
     }
 
@@ -73,7 +70,7 @@ namespace WindsorWithHttpListenerHost_Specification
         public string Get()
         {
             _response.Headers["FOO"] = "BAR";
-            return "Test Response";
+            return "Test Header Response";
         }
     }
 
@@ -100,23 +97,24 @@ namespace WindsorWithHttpListenerHost_Specification
 
     public class when_creating_a_new_HttpListenerHost_with_WindsorResolver : context
     {
+        static Random randomPort = new Random();
         TestHttpListenerHostWithConfig _host;
-        private const string Prefix = "http://localhost:18981/";
+        string Prefix;
         private IWindsorContainer _container;
 
         protected override void SetUp()
         {
             // init container
             _container = new WindsorContainer();
+            Prefix = $"http://localhost:{randomPort.Next(1024, 2048)}/";
 
             _container.Register(
-                Component.For<HttpListenerContext>().UsingFactoryMethod(() => (HttpListenerContext)null),
-                Component.For<HttpListenerCommunicationContext>().UsingFactoryMethod(() => (HttpListenerCommunicationContext)null),
-                Component.For<System.Net.HttpListenerRequest>().UsingFactoryMethod(() => (System.Net.HttpListenerRequest)null),
-                Component.For<System.Net.HttpListenerResponse>().UsingFactoryMethod(() => (System.Net.HttpListenerResponse)null),
-
                 Component.For<IConfigurationSource>().ImplementedBy<TestConfigurationSource>().LifestyleSingleton(),
-                Component.For<TestHttpListenerHostWithConfig>().ImplementedBy<TestHttpListenerHostWithConfig>().LifestyleSingleton());
+                Component.For<TestHttpListenerHostWithConfig>().ImplementedBy<TestHttpListenerHostWithConfig>().LifestyleSingleton(),
+                
+                Component.For<IRequest>().UsingFactoryMethod(() => (IRequest)null).LifestyleScoped(),
+                Component.For<IResponse>().UsingFactoryMethod(() => (IResponse)null).LifestyleScoped(),
+            Component.For<ICommunicationContext>().UsingFactoryMethod(() => (ICommunicationContext)null).LifestyleScoped());
 
             // Statically set the container for the resolver accessor type as it is created by 
             // Activator.CreateInstance(Type type) in HttpListenerHost.Initialize(...)
@@ -146,7 +144,7 @@ namespace WindsorWithHttpListenerHost_Specification
         public void the_root_uri_serves_the_test_string()
         {
             var response = new WebClient().DownloadString(Prefix);
-            Assert.That(response, Is.EqualTo("Test Response"));
+            Assert.That(response, Is.EqualTo("Test Root Response"));
         }
 
         [Test]
@@ -154,7 +152,7 @@ namespace WindsorWithHttpListenerHost_Specification
         {
             var webClient = new WebClient();
             var response = webClient.DownloadString(Prefix + "with-header");
-            Assert.That(response, Is.EqualTo("Test Response"));
+            Assert.That(response, Is.EqualTo("Test Header Response"));
 
             var fooHeader = webClient.ResponseHeaders["FOO"];
             Assert.That(fooHeader, Is.EqualTo("BAR"));
