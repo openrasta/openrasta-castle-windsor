@@ -13,6 +13,10 @@ using OpenRasta.Web;
 
 namespace WindsorWithHttpListenerHost_Specification
 {
+  public class MyCustomDependency
+  {
+  }
+
   class TestConfigurationSource : IConfigurationSource
   {
     public void Configure()
@@ -20,9 +24,13 @@ namespace WindsorWithHttpListenerHost_Specification
       ResourceSpace.Has.ResourcesOfType<string>()
         .AtUri("/").Named("Root")
         .And.AtUri("/with-header").Named("WithHeader")
+        .And.AtUri("/dependency").Named("Dependency")
         .HandledBy<TestHandler>()
         .And.HandledBy<HeaderSettingHandler>()
+        .And.HandledBy<TestDependencyHandler>()
         .TranscodedBy<TextPlainCodec>();
+
+      ResourceSpace.Uses.Dependency(ctx => ctx.Transient((IDependencyResolver resolver, IRequest request, IResponse response) => new MyCustomDependency()));
     }
   }
 
@@ -32,6 +40,24 @@ namespace WindsorWithHttpListenerHost_Specification
     public string Get()
     {
       return "Test Root Response";
+    }
+  }
+
+  public class TestDependencyHandler
+  {
+    readonly MyCustomDependency _dependency;
+
+    public TestDependencyHandler(MyCustomDependency dependency)
+    {
+      _dependency = dependency;
+    }
+
+    [HttpOperation(ForUriName = "Dependency")]
+    public string Get()
+    {
+      if (_dependency == null)
+        throw new InvalidOperationException("Dependencies are borked");
+      return "Test Dependency Response";
     }
   }
 
@@ -51,6 +77,7 @@ namespace WindsorWithHttpListenerHost_Specification
       return "Test Header Response";
     }
   }
+
   public class when_creating_a_new_HttpListenerHost_with_WindsorResolver : IDisposable
   {
     static Random randomPort = new Random();
@@ -63,7 +90,7 @@ namespace WindsorWithHttpListenerHost_Specification
       // init container
       _container = new WindsorContainer();
       var port = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? 18981 : randomPort.Next(1024, 2048);
-      
+
       Prefix = $"http://localhost:{port}/";
 
       _container.Register(
@@ -94,6 +121,13 @@ namespace WindsorWithHttpListenerHost_Specification
     {
       var response = new WebClient().DownloadString(Prefix);
       Assert.That(response, Is.EqualTo("Test Root Response"));
+    }
+
+    [Test]
+    public void dependencies_are_resolved()
+    {
+      var response = new WebClient().DownloadString(Prefix + "dependency");
+      Assert.That(response, Is.EqualTo("Test Dependency Response"));
     }
 
     [Test]

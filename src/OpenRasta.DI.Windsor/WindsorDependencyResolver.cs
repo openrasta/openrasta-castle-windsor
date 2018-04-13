@@ -23,6 +23,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using Castle.MicroKernel.Lifestyle;
+using OpenRasta.Web;
 
 namespace OpenRasta.DI.Windsor
 {
@@ -58,6 +59,8 @@ namespace OpenRasta.DI.Windsor
           .For<IDependencyResolver, IModelDrivenDependencyRegistration>()
           .Instance(this)
           .OnlyNewServices());
+//        Component.For<ICommunicationContext>().UsingFactoryMethod(() => (ICommunicationContext) null).LifestyleScoped()
+      );
     }
 
     public bool HasDependency(Type serviceType)
@@ -133,26 +136,121 @@ namespace OpenRasta.DI.Windsor
 
     public void Register(DependencyFactoryModel registration)
     {
-      var name = Guid.NewGuid().ToString();
-      object ResolveFromRegistration(IKernel ctx)
-      {
-        return registration.UntypedFactory(registration.Arguments.Select(x => ctx.ResolveAll(x)).ToArray<object>());
-      }
+      var genericTypeDef = registration.GetType().GetGenericTypeDefinition();
+      var args = registration.GetType().GenericTypeArguments;
+      var allArgs = new[] {registration.ServiceType}.Concat(args).ToArray();
 
-      Func<IKernel, object> factory = null;
-      if (registration.Factory != null)
-        factory = ResolveFromRegistration;
-      _windsorContainer.Register(
-        Component.For(registration.ServiceType)
-          .Named(name)
-          .UsingFactoryMethod(factory)
-          .ImplementedBy(registration.ConcreteType)
-          .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(registration.Lifetime)));
+      Type registrarType = null;
+      if (genericTypeDef == typeof(DependencyFactoryModel<>))
+        registrarType = typeof(FactoryRegistration<,>).MakeGenericType(allArgs);
+      else if (genericTypeDef == typeof(DependencyFactoryModel<,>))
+        registrarType = typeof(FactoryRegistration<,,>).MakeGenericType(allArgs);
+      else if (genericTypeDef == typeof(DependencyFactoryModel<,,>))
+        registrarType = typeof(FactoryRegistration<,,,>).MakeGenericType(allArgs);
+
+      else if (genericTypeDef == typeof(DependencyFactoryModel<,,,>))
+        registrarType = typeof(FactoryRegistration<,,,,>).MakeGenericType(allArgs);
+
+      else if (genericTypeDef == typeof(DependencyFactoryModel<,,,,>))
+        registrarType = typeof(FactoryRegistration<,,,,,>).MakeGenericType(allArgs);
+      else
+        throw new NotSupportedException();
+
+      var registrar = (IRegisterFactories) Activator.CreateInstance(registrarType);
+
+      registrar.Register(_windsorContainer, registration);
     }
 
     public IDisposable CreateRequestScope()
     {
       return _windsorContainer.BeginScope();
+    }
+
+    interface IRegisterFactories
+    {
+      void Register(IWindsorContainer container, DependencyFactoryModel model);
+    }
+
+    class FactoryRegistration<TService, TConcrete> : IRegisterFactories
+      where TConcrete : TService where TService : class
+    {
+      public void Register(IWindsorContainer container, DependencyFactoryModel registration)
+      {
+        var name = Guid.NewGuid().ToString();
+        var factoryMethod = ((Expression<Func<TConcrete>>) registration.Factory).Compile();
+        container.Register(
+          Component.For<TService>()
+            .Named(name)
+            .UsingFactoryMethod(factoryMethod)
+            .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(registration.Lifetime)));
+      }
+    }
+
+    class FactoryRegistration<TService, TArg, TConcrete> : IRegisterFactories
+      where TService : class where TConcrete : TService
+    {
+      public void Register(IWindsorContainer container, DependencyFactoryModel registration)
+      {
+        var name = Guid.NewGuid().ToString();
+        var factoryMethod = ((Expression<Func<TArg, TConcrete>>) registration.Factory).Compile();
+        container.Register(
+          Component.For<TService>()
+            .Named(name)
+            .UsingFactoryMethod(kernel => factoryMethod(kernel.Resolve<TArg>()))
+            .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(registration.Lifetime)));
+      }
+    }
+
+    class FactoryRegistration<TService, TArg1, TArg2, TConcrete> : IRegisterFactories
+      where TService : class where TConcrete : TService
+    {
+      public void Register(IWindsorContainer container, DependencyFactoryModel registration)
+      {
+        var name = Guid.NewGuid().ToString();
+        var factoryMethod = ((Expression<Func<TArg1, TArg2, TConcrete>>) registration.Factory).Compile();
+        container.Register(
+          Component.For<TService>()
+            .Named(name)
+            .UsingFactoryMethod(kernel => factoryMethod(kernel.Resolve<TArg1>(), kernel.Resolve<TArg2>()))
+            .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(registration.Lifetime)));
+      }
+    }
+
+    class FactoryRegistration<TService, TArg1, TArg2, TArg3, TConcrete> : IRegisterFactories
+      where TService : class where TConcrete : TService
+    {
+      public void Register(IWindsorContainer container, DependencyFactoryModel registration)
+      {
+        var name = Guid.NewGuid().ToString();
+        var factoryMethod = ((Expression<Func<TArg1, TArg2, TArg3, TConcrete>>) registration.Factory).Compile();
+        container.Register(
+          Component.For<TService>()
+            .Named(name)
+            .UsingFactoryMethod(kernel => factoryMethod(
+              kernel.Resolve<TArg1>(),
+              kernel.Resolve<TArg2>(),
+              kernel.Resolve<TArg3>()))
+            .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(registration.Lifetime)));
+      }
+    }
+
+    class FactoryRegistration<TService, TArg1, TArg2, TArg3, TArg4, TConcrete> : IRegisterFactories
+      where TService : class where TConcrete : TService
+    {
+      public void Register(IWindsorContainer container, DependencyFactoryModel registration)
+      {
+        var name = Guid.NewGuid().ToString();
+        var factoryMethod = ((Expression<Func<TArg1, TArg2, TArg3, TArg4, TConcrete>>) registration.Factory).Compile();
+        container.Register(
+          Component.For<TService>()
+            .Named(name)
+            .UsingFactoryMethod(kernel => factoryMethod(
+              kernel.Resolve<TArg1>(),
+              kernel.Resolve<TArg2>(),
+              kernel.Resolve<TArg3>(),
+              kernel.Resolve<TArg4>()))
+            .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(registration.Lifetime)));
+      }
     }
   }
 }
