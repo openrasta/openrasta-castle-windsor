@@ -133,6 +133,7 @@ namespace OpenRasta.DI.Windsor
 
     public void Register(DependencyFactoryModel registration)
     {
+      var name = Guid.NewGuid().ToString();
       object ResolveFromRegistration(IKernel ctx)
       {
         return registration.UntypedFactory(registration.Arguments.Select(x => ctx.ResolveAll(x)).ToArray<object>());
@@ -143,6 +144,7 @@ namespace OpenRasta.DI.Windsor
         factory = ResolveFromRegistration;
       _windsorContainer.Register(
         Component.For(registration.ServiceType)
+          .Named(name)
           .UsingFactoryMethod(factory)
           .ImplementedBy(registration.ConcreteType)
           .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(registration.Lifetime)));

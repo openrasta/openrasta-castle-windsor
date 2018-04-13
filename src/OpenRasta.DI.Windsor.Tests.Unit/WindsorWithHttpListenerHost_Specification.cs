@@ -13,29 +13,6 @@ using OpenRasta.Web;
 
 namespace WindsorWithHttpListenerHost_Specification
 {
-  public class TestHttpListenerHostWithConfig : HttpListenerHost
-  {
-    private readonly IConfigurationSource _source;
-    public IDependencyResolver Resolver { get; private set; }
-
-    public TestHttpListenerHostWithConfig(IConfigurationSource source)
-    {
-      _source = source ?? throw new ArgumentNullException(nameof(source));
-    }
-
-    public override bool ConfigureRootDependencies(IDependencyResolver resolver)
-    {
-      var configured = base.ConfigureRootDependencies(resolver);
-      if (configured && _source != null)
-      {
-        resolver.AddDependencyInstance<IConfigurationSource>(_source);
-      }
-
-      Resolver = resolver;
-      return configured;
-    }
-  }
-
   class TestConfigurationSource : IConfigurationSource
   {
     public void Configure()
@@ -74,32 +51,10 @@ namespace WindsorWithHttpListenerHost_Specification
       return "Test Header Response";
     }
   }
-
-  public class WindsorDependencyResolverAccessor : IDependencyResolverAccessor
-  {
-    private static IWindsorContainer _container;
-
-    public IDependencyResolver Resolver { get; private set; }
-
-    public WindsorDependencyResolverAccessor()
-    {
-      Resolver = new WindsorDependencyResolver(_container);
-    }
-
-    public static void SetupWith(IWindsorContainer container)
-    {
-      if (container == null)
-        throw new ArgumentNullException("container");
-
-      if (_container == null)
-        _container = container;
-    }
-  }
-
   public class when_creating_a_new_HttpListenerHost_with_WindsorResolver : IDisposable
   {
     static Random randomPort = new Random();
-    TestHttpListenerHostWithConfig _host;
+    HttpListenerHost _host;
     string Prefix;
     private IWindsorContainer _container;
 
@@ -112,22 +67,11 @@ namespace WindsorWithHttpListenerHost_Specification
       Prefix = $"http://localhost:{port}/";
 
       _container.Register(
-        Component.For<IConfigurationSource>().ImplementedBy<TestConfigurationSource>().LifestyleSingleton(),
-        Component.For<TestHttpListenerHostWithConfig>().ImplementedBy<TestHttpListenerHostWithConfig>()
-          .LifestyleSingleton(),
-        Component.For<IRequest>().UsingFactoryMethod(() => (IRequest) null).LifestyleScoped(),
-        Component.For<IResponse>().UsingFactoryMethod(() => (IResponse) null).LifestyleScoped(),
-        Component.For<ICommunicationContext>().UsingFactoryMethod(() => (ICommunicationContext) null)
-          .LifestyleScoped());
+        Component.For<IConfigurationSource>().ImplementedBy<TestConfigurationSource>().LifestyleSingleton());
 
-      // Statically set the container for the resolver accessor type as it is created by 
-      // Activator.CreateInstance(Type type) in HttpListenerHost.Initialize(...)
-      WindsorDependencyResolverAccessor.SetupWith(_container);
 
-      var resolverFactoryType = typeof(WindsorDependencyResolverAccessor);
-
-      _host = _container.Resolve<TestHttpListenerHostWithConfig>();
-      _host.Initialize(new[] {Prefix}, "/", resolverFactoryType);
+      _host = new HttpListenerHost(new TestConfigurationSource(), new WindsorDependencyResolver(_container));
+      _host.Initialize(new[] {Prefix}, "/");
       _host.StartListening();
     }
 
