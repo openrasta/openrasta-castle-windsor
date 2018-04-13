@@ -18,18 +18,20 @@ using Castle.MicroKernel.Registration;
 using Castle.MicroKernel.Resolvers.SpecializedResolvers;
 using Castle.Windsor;
 using OpenRasta.Configuration.MetaModel;
-using OpenRasta.Pipeline;
 using System;
-using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
+using Castle.MicroKernel.Lifestyle;
 
 namespace OpenRasta.DI.Windsor
 {
-  public class WindsorDependencyResolver : DependencyResolverCore, IDependencyResolver,
-    IModelDrivenDependencyRegistration, IDisposable
+  public class WindsorDependencyResolver :
+    DependencyResolverCore,
+    IDependencyResolver,
+    IModelDrivenDependencyRegistration,
+    IRequestScopedResolver,
+    IDisposable
   {
     readonly IWindsorContainer _windsorContainer;
     readonly bool _disposeContainerOnCleanup;
@@ -51,35 +53,36 @@ namespace OpenRasta.DI.Windsor
         _windsorContainer.AddFacility<TypedFactoryFacility>();
       }
 
-      _windsorContainer.Register(Component.For<IDependencyResolver, IModelDrivenDependencyRegistration>().Instance(this)
-        .OnlyNewServices());
+      _windsorContainer.Register(
+        Component
+          .For<IDependencyResolver, IModelDrivenDependencyRegistration>()
+          .Instance(this)
+          .OnlyNewServices());
     }
 
     public bool HasDependency(Type serviceType)
     {
       if (serviceType == null) return false;
-      return AvailableHandlers(_windsorContainer.Kernel.GetHandlers(serviceType)).Any();
+      return _windsorContainer.Kernel.GetHandlers(serviceType).Any();
     }
 
     public bool HasDependencyImplementation(Type serviceType, Type concreteType)
     {
       return
-        AvailableHandlers(_windsorContainer.Kernel.GetHandlers(serviceType))
+        _windsorContainer.Kernel.GetHandlers(serviceType)
           .Any(h => h.ComponentModel.Implementation == concreteType);
     }
 
     public void HandleIncomingRequestProcessed()
     {
-      var store = _windsorContainer.Resolve<IContextStore>();
-
-      store.Destruct();
+      throw new NotSupportedException("Unsupported, are you sure you're using OpenRasta 2.6?");
     }
 
-    static ConcurrentDictionary<Type, Type> enumMappings = new ConcurrentDictionary<Type, Type>();
+    static readonly ConcurrentDictionary<Type, Type> EnumMappings = new ConcurrentDictionary<Type, Type>();
 
     protected override object ResolveCore(Type serviceType)
     {
-      var enumType = enumMappings.GetOrAdd(serviceType, type => serviceType.GetCompatibleArrayItemType());
+      var enumType = EnumMappings.GetOrAdd(serviceType, type => serviceType.GetCompatibleArrayItemType());
 
       return enumType != null
         ? _windsorContainer.ResolveAll(enumType)
@@ -88,7 +91,7 @@ namespace OpenRasta.DI.Windsor
 
     protected override IEnumerable<TService> ResolveAllCore<TService>()
     {
-      return ((IEnumerable<object>) ResolveCore(typeof(IEnumerable<TService>))).Cast<TService>();
+      return _windsorContainer.ResolveAll<TService>();
     }
 
     protected override void AddDependencyCore(Type dependent, Type concrete, DependencyLifetime lifetime)
@@ -96,16 +99,8 @@ namespace OpenRasta.DI.Windsor
       string componentName = Guid.NewGuid().ToString();
       lock (ContainerLock)
       {
-        if (lifetime != DependencyLifetime.PerRequest)
-        {
-          _windsorContainer.Register(Component.For(dependent).ImplementedBy(concrete).Named(componentName).LifeStyle
-            .Is(ConvertLifestyles.ToLifestyleType(lifetime)));
-        }
-        else
-        {
-          _windsorContainer.Register(Component.For(dependent).Named(componentName).ImplementedBy(concrete).LifeStyle
-            .Custom(typeof(ContextStoreLifetime)));
-        }
+        _windsorContainer.Register(Component.For(dependent).ImplementedBy(concrete).Named(componentName).LifeStyle
+          .Is(ConvertLifestyles.ToLifestyleType(lifetime)));
       }
     }
 
@@ -113,85 +108,16 @@ namespace OpenRasta.DI.Windsor
     {
       string key = Guid.NewGuid().ToString();
 
-      switch (lifetime)
+      lock (ContainerLock)
       {
-        case DependencyLifetime.PerRequest:
-        {
-          var store = (IContextStore) Resolve(typeof(IContextStore));
-          // try to see if we have a registration already
-          if (_windsorContainer.Kernel.HasComponent(serviceType))
-          {
-            var handler = _windsorContainer.Kernel.GetHandler(serviceType);
-            if (handler.ComponentModel.ExtendedProperties[Constants.REG_IS_INSTANCE_KEY] != null)
-            {
-              // if there's already an instance registration we update the store with the correct reg.
-              store[handler.ComponentModel.Name] = instance;
-            }
-            else
-            {
-              throw new DependencyResolutionException("Cannot register an instance for a type already registered");
-            }
-          }
-          else
-          {
-            lock (ContainerLock)
-            {
-              if (_windsorContainer.Kernel.HasComponent(serviceType) == false)
-              {
-                _windsorContainer.Register(
-                  Component.For(serviceType)
-                    .Activator<ContextStoreInstanceActivator>()
-                    .LifestyleCustom<ContextStoreLifetime>()
-                    .ImplementedBy(instance.GetType())
-                    .Named(key)
-                    .ExtendedProperties(new Property(Constants.REG_IS_INSTANCE_KEY, true))
-                );
-                store[key] = instance;
-              }
-            }
-          }
-        }
-          break;
-        case DependencyLifetime.Singleton:
-          lock (ContainerLock)
-          {
-            _windsorContainer.Register(Component.For(serviceType).Instance(instance).Named(key).LifeStyle.Singleton);
-          }
-
-          break;
+        _windsorContainer.Register(Component.For(serviceType).Instance(instance).Named(key).LifeStyle
+          .Is(ConvertLifestyles.ToLifestyleType(lifetime)));
       }
     }
 
     protected override void AddDependencyCore(Type handlerType, DependencyLifetime lifetime)
     {
       AddDependencyCore(handlerType, handlerType, lifetime);
-    }
-
-    IEnumerable<IHandler> AvailableHandlers(IEnumerable<IHandler> handlers)
-    {
-      return from handler in handlers
-        where IsAvailable(handler.ComponentModel)
-        select handler;
-    }
-
-    bool IsAvailable(ComponentModel component)
-    {
-      bool isWebInstance = IsWebInstance(component);
-      if (isWebInstance)
-      {
-        if (component.Name == null || !HasDependency(typeof(IContextStore))) return false;
-        var store = _windsorContainer.Resolve<IContextStore>();
-        bool isInstanceAvailable = store[component.Name] != null;
-        return isInstanceAvailable;
-      }
-
-      return true;
-    }
-
-    static bool IsWebInstance(ComponentModel component)
-    {
-      return typeof(ContextStoreLifetime).IsAssignableFrom(component.CustomLifestyle)
-             && component.ExtendedProperties[Constants.REG_IS_INSTANCE_KEY] != null;
     }
 
     public void Dispose()
@@ -212,12 +138,16 @@ namespace OpenRasta.DI.Windsor
       Func<IKernel, object> factory = null;
       if (registration.Factory != null)
         factory = ResolveFromRegistration;
-
       _windsorContainer.Register(
         Component.For(registration.ServiceType)
           .UsingFactoryMethod(factory)
           .ImplementedBy(registration.ConcreteType)
           .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(registration.Lifetime)));
+    }
+
+    public IDisposable CreateRequestScope()
+    {
+      return _windsorContainer.BeginScope();
     }
   }
 }

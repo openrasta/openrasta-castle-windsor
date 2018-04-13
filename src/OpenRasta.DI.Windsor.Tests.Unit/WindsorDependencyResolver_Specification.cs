@@ -64,24 +64,6 @@ namespace WindsorDependencyResolver_Specification
     }
   }
 
-  [TestFixture]
-  public class
-    when_registering_for_per_request_lifetime_with_the_castle_resolver : when_registering_for_per_request_lifetime
-  {
-    public override IDependencyResolver CreateResolver()
-    {
-      return new WindsorDependencyResolver(new WindsorContainer());
-    }
-
-    [Test,
-     Ignore(
-       "This test is to surface an issue with the windsor intergration. There is a fix to get around it until we have rewritten the intergration")]
-    public override void
-      a_type_registered_as_transient_gets_an_instance_which_is_created_with_another_instance_and_is_registered_as_perwebrequest()
-    {
-      a_type_registered_as_transient_gets_an_instance_which_is_created_with_another_instance_and_is_registered_as_perwebrequest();
-    }
-  }
 
 
   [TestFixture]

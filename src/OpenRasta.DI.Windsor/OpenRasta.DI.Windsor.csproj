@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Authors>Sebastien Lambla</Authors>
     <PackageProjectUrl>https://github.com/openrasta/openrasta-castle-windsor</PackageProjectUrl>
