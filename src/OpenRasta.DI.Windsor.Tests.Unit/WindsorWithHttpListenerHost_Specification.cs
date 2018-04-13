@@ -4,13 +4,11 @@ using System.Runtime.InteropServices;
 using Castle.MicroKernel.Registration;
 using Castle.Windsor;
 using NUnit.Framework;
-using NUnit.Framework.Internal;
 using OpenRasta.Codecs;
 using OpenRasta.Configuration;
 using OpenRasta.DI;
 using OpenRasta.DI.Windsor;
 using OpenRasta.Hosting.HttpListener;
-using OpenRasta.Tests.Unit.Infrastructure;
 using OpenRasta.Web;
 
 namespace WindsorWithHttpListenerHost_Specification
