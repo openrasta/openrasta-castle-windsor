@@ -13,6 +13,7 @@
 using System;
 using System.Collections.Generic;
 using Castle.MicroKernel;
+using Castle.MicroKernel.Lifestyle;
 using Castle.MicroKernel.Registration;
 using Castle.Windsor;
 using InternalDependencyResolver_Specification;
@@ -36,6 +37,7 @@ namespace WindsorDependencyResolver_Specification
       return new WindsorDependencyResolver(new WindsorContainer());
     }
   }
+
 
   [TestFixture]
   public class when_registering_dependencies_with_the_castle_resolver : when_registering_dependencies
@@ -63,8 +65,6 @@ namespace WindsorDependencyResolver_Specification
       Resolver.Resolve<DependencyOnTypeWithGernericParams>().Dependency.ShouldBe(dynamicDependency);
     }
   }
-
-
 
   [TestFixture]
   public class

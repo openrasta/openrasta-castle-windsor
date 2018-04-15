@@ -9,10 +9,28 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using Castle.MicroKernel;
 using Castle.MicroKernel.Lifestyle;
 
 namespace OpenRasta.DI.Windsor
 {
+  class ScopedInstanceStore
+  {
+    Dictionary<Type, object> _store = new Dictionary<Type, object>(4);
+
+    public object GetInstance(Type serviceType)
+    {
+      return _store.TryGetValue(serviceType, out var service)
+        ? service
+        : throw new ComponentNotFoundException(serviceType);
+    }
+
+    public void SetInstance(Type serviceType, object instance)
+    {
+      _store[serviceType] = instance;
+    }
+  }
+
   public class WindsorDependencyResolver :
     DependencyResolverCore,
     IDependencyResolver,
@@ -28,10 +46,16 @@ namespace OpenRasta.DI.Windsor
     {
     }
 
+    static string GetComponentName(Type serviceType)
+    {
+      return $"openrasta.{serviceType.FullName}.{Guid.NewGuid()}";
+    }
+
     public WindsorDependencyResolver(IWindsorContainer container, bool disposeContainerOnCleanup = false)
     {
       _windsorContainer = container;
       _disposeContainerOnCleanup = disposeContainerOnCleanup;
+
 
       _windsorContainer.Kernel.Resolver.AddSubResolver(new CollectionResolver(container.Kernel, true));
 
@@ -45,12 +69,17 @@ namespace OpenRasta.DI.Windsor
           .For<IDependencyResolver, IModelDrivenDependencyRegistration>()
           .Instance(this)
           .OnlyNewServices());
+
+      _windsorContainer.Register(Component
+        .For<ScopedInstanceStore>()
+        .Named(GetComponentName(typeof(ScopedInstanceStore)))
+        .ImplementedBy<ScopedInstanceStore>()
+        .LifestyleScoped());
     }
 
     public bool HasDependency(Type serviceType)
     {
-      if (serviceType == null) return false;
-      return _windsorContainer.Kernel.GetHandlers(serviceType).Any();
+      return serviceType != null && _windsorContainer.Kernel.GetHandlers(serviceType).Any();
     }
 
     public bool HasDependencyImplementation(Type serviceType, Type concreteType)
@@ -83,7 +112,7 @@ namespace OpenRasta.DI.Windsor
 
     protected override void AddDependencyCore(Type dependent, Type concrete, DependencyLifetime lifetime)
     {
-      string componentName = Guid.NewGuid().ToString();
+      string componentName = GetComponentName(dependent);
       lock (ContainerLock)
       {
         _windsorContainer.Register(Component.For(dependent).ImplementedBy(concrete).Named(componentName).LifeStyle
@@ -93,15 +122,29 @@ namespace OpenRasta.DI.Windsor
 
     protected override void AddDependencyInstanceCore(Type serviceType, object instance, DependencyLifetime lifetime)
     {
-      string key = Guid.NewGuid().ToString();
+      var key = GetComponentName(serviceType);
       lock (ContainerLock)
       {
-        _windsorContainer.Register(Component
-          .For(serviceType)
-          .Instance(instance)
-          .Named(key)
-          .IsDefault()
-          .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(lifetime)));
+        if (lifetime == DependencyLifetime.PerRequest)
+        {
+          if (!_windsorContainer.Kernel.HasComponent(serviceType))
+            _windsorContainer.Register(Component
+              .For(serviceType)
+              .Named(key)
+              .UsingFactoryMethod(kernel => kernel.Resolve<ScopedInstanceStore>().GetInstance(serviceType))
+              .LifestyleScoped());
+
+          _windsorContainer.Resolve<ScopedInstanceStore>().SetInstance(serviceType, instance);
+        }
+        else
+        {
+          _windsorContainer.Register(Component
+            .For(serviceType)
+            .Instance(instance)
+            .Named(key)
+            .IsDefault()
+            .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(lifetime)));
+        }
       }
     }
 
@@ -140,7 +183,7 @@ namespace OpenRasta.DI.Windsor
 
       var registrar = (IRegisterFactories) Activator.CreateInstance(registrarType);
 
-      registrar.Register(_windsorContainer, registration);
+      registrar.Register(GetComponentName(registration.ServiceType), _windsorContainer, registration);
     }
 
     public IDisposable CreateRequestScope()
@@ -150,19 +193,18 @@ namespace OpenRasta.DI.Windsor
 
     interface IRegisterFactories
     {
-      void Register(IWindsorContainer container, DependencyFactoryModel model);
+      void Register(string componentName, IWindsorContainer container, DependencyFactoryModel model);
     }
 
     class FactoryRegistration<TService, TConcrete> : IRegisterFactories
       where TConcrete : TService where TService : class
     {
-      public void Register(IWindsorContainer container, DependencyFactoryModel registration)
+      public void Register(string componentName, IWindsorContainer container, DependencyFactoryModel registration)
       {
-        var name = Guid.NewGuid().ToString();
         var factoryMethod = ((Expression<Func<TConcrete>>) registration.Factory).Compile();
         container.Register(
           Component.For<TService>()
-            .Named(name)
+            .Named(componentName)
             .UsingFactoryMethod(factoryMethod)
             .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(registration.Lifetime)));
       }
@@ -171,13 +213,12 @@ namespace OpenRasta.DI.Windsor
     class FactoryRegistration<TService, TArg, TConcrete> : IRegisterFactories
       where TService : class where TConcrete : TService
     {
-      public void Register(IWindsorContainer container, DependencyFactoryModel registration)
+      public void Register(string componentName, IWindsorContainer container, DependencyFactoryModel registration)
       {
-        var name = Guid.NewGuid().ToString();
         var factoryMethod = ((Expression<Func<TArg, TConcrete>>) registration.Factory).Compile();
         container.Register(
           Component.For<TService>()
-            .Named(name)
+            .Named(componentName)
             .UsingFactoryMethod(kernel => factoryMethod(
               kernel.Resolve<TArg>()))
             .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(registration.Lifetime)));
@@ -187,13 +228,12 @@ namespace OpenRasta.DI.Windsor
     class FactoryRegistration<TService, TArg1, TArg2, TConcrete> : IRegisterFactories
       where TService : class where TConcrete : TService
     {
-      public void Register(IWindsorContainer container, DependencyFactoryModel registration)
+      public void Register(string componentName, IWindsorContainer container, DependencyFactoryModel registration)
       {
-        var name = Guid.NewGuid().ToString();
         var factoryMethod = ((Expression<Func<TArg1, TArg2, TConcrete>>) registration.Factory).Compile();
         container.Register(
           Component.For<TService>()
-            .Named(name)
+            .Named(componentName)
             .UsingFactoryMethod(kernel => factoryMethod(
               kernel.Resolve<TArg1>(),
               kernel.Resolve<TArg2>()))
@@ -204,13 +244,12 @@ namespace OpenRasta.DI.Windsor
     class FactoryRegistration<TService, TArg1, TArg2, TArg3, TConcrete> : IRegisterFactories
       where TService : class where TConcrete : TService
     {
-      public void Register(IWindsorContainer container, DependencyFactoryModel registration)
+      public void Register(string componentName, IWindsorContainer container, DependencyFactoryModel registration)
       {
-        var name = Guid.NewGuid().ToString();
         var factoryMethod = ((Expression<Func<TArg1, TArg2, TArg3, TConcrete>>) registration.Factory).Compile();
         container.Register(
           Component.For<TService>()
-            .Named(name)
+            .Named(componentName)
             .UsingFactoryMethod(kernel => factoryMethod(
               kernel.Resolve<TArg1>(),
               kernel.Resolve<TArg2>(),
@@ -222,13 +261,12 @@ namespace OpenRasta.DI.Windsor
     class FactoryRegistration<TService, TArg1, TArg2, TArg3, TArg4, TConcrete> : IRegisterFactories
       where TService : class where TConcrete : TService
     {
-      public void Register(IWindsorContainer container, DependencyFactoryModel registration)
+      public void Register(string componentName, IWindsorContainer container, DependencyFactoryModel registration)
       {
-        var name = Guid.NewGuid().ToString();
         var factoryMethod = ((Expression<Func<TArg1, TArg2, TArg3, TArg4, TConcrete>>) registration.Factory).Compile();
         container.Register(
           Component.For<TService>()
-            .Named(name)
+            .Named(componentName)
             .UsingFactoryMethod(kernel => factoryMethod(
               kernel.Resolve<TArg1>(),
               kernel.Resolve<TArg2>(),
