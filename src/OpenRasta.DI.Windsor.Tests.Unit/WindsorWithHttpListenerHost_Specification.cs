@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Net;
 using System.Runtime.InteropServices;
 using Castle.MicroKernel.Registration;
@@ -13,10 +14,69 @@ using OpenRasta.Web;
 
 namespace WindsorWithHttpListenerHost_Specification
 {
-  public class MyCustomDependency
+  
+  public class MyCustomDependencyNoFactory
   {
+    
+  }
+  public class MyCustomDependency0
+  {
+    
+  }
+  public class MyCustomDependency1
+  {
+    readonly IDependencyResolver _resolver;
+
+
+    public MyCustomDependency1(IDependencyResolver resolver)
+    {
+      _resolver = resolver;
+    }
   }
 
+  public class MyCustomDependency2
+  {
+    readonly IDependencyResolver _resolver;
+    readonly IRequest _request;
+
+    public MyCustomDependency2(IDependencyResolver resolver, IRequest request)
+    {
+      _resolver = resolver;
+      _request = request;
+    }
+  }
+
+  public class MyCustomDependency3
+  {
+    readonly IDependencyResolver _resolver;
+    readonly IRequest _request;
+    readonly IResponse _response;
+
+
+    public MyCustomDependency3(IDependencyResolver resolver, IRequest request, IResponse response)
+    {
+      _resolver = resolver;
+      _request = request;
+      _response = response;
+    }
+  }
+
+  public class MyCustomDependency4
+  {
+    readonly IDependencyResolver _resolver;
+    readonly IRequest _request;
+    readonly IResponse _response;
+    readonly ICommunicationContext _context;
+
+
+    public MyCustomDependency4(IDependencyResolver resolver, IRequest request, IResponse response, ICommunicationContext context)
+    {
+      _resolver = resolver;
+      _request = request;
+      _response = response;
+      _context = context;
+    }
+  }
   class TestConfigurationSource : IConfigurationSource
   {
     public void Configure()
@@ -30,7 +90,22 @@ namespace WindsorWithHttpListenerHost_Specification
         .And.HandledBy<TestDependencyHandler>()
         .TranscodedBy<TextPlainCodec>();
 
-      ResourceSpace.Uses.Dependency(ctx => ctx.Transient((IDependencyResolver resolver, IRequest request, IResponse response) => new MyCustomDependency()));
+      
+      ResourceSpace.Uses
+        .Dependency(ctx => ctx.Transient(()=>new MyCustomDependency0()))
+        .Dependency(ctx=>ctx.Singleton<MyCustomDependencyNoFactory>());
+      ResourceSpace.Uses.Dependency(ctx => 
+        ctx.Transient((IDependencyResolver resolver) => 
+          new MyCustomDependency1(resolver)));
+      ResourceSpace.Uses.Dependency(ctx => 
+        ctx.Transient((IDependencyResolver resolver, IRequest request) => 
+          new MyCustomDependency2(resolver, request)));
+      ResourceSpace.Uses.Dependency(ctx => 
+        ctx.Transient((IDependencyResolver resolver, IRequest request, IResponse response) => 
+        new MyCustomDependency3(resolver, request, response)));
+      ResourceSpace.Uses.Dependency(ctx => 
+        ctx.Transient((IDependencyResolver resolver, IRequest request, IResponse response, ICommunicationContext context) => 
+          new MyCustomDependency4(resolver, request, response, context)));
     }
   }
 
@@ -45,17 +120,22 @@ namespace WindsorWithHttpListenerHost_Specification
 
   public class TestDependencyHandler
   {
-    readonly MyCustomDependency _dependency;
+    readonly object[] _dependencies;
 
-    public TestDependencyHandler(MyCustomDependency dependency)
+    public TestDependencyHandler(MyCustomDependencyNoFactory depNoFactory,
+      MyCustomDependency0 dependency0,
+      MyCustomDependency1 dependency1,
+      MyCustomDependency2 dependency2,
+      MyCustomDependency3 dependency3,
+      MyCustomDependency4 dependency4)
     {
-      _dependency = dependency;
+      _dependencies = new object[] {depNoFactory,dependency0, dependency1, dependency2, dependency3, dependency4};
     }
 
     [HttpOperation(ForUriName = "Dependency")]
     public string Get()
     {
-      if (_dependency == null)
+      if (_dependencies.Any(d=>d == null))
         throw new InvalidOperationException("Dependencies are borked");
       return "Test Dependency Response";
     }

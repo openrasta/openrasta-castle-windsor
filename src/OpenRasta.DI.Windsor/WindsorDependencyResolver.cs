@@ -201,12 +201,23 @@ namespace OpenRasta.DI.Windsor
     {
       public void Register(string componentName, IWindsorContainer container, DependencyFactoryModel registration)
       {
-        var factoryMethod = ((Expression<Func<TConcrete>>) registration.Factory).Compile();
-        container.Register(
-          Component.For<TService>()
+        if (registration.Factory == null)
+        {
+          container.Register(Component
+            .For<TService>()
             .Named(componentName)
-            .UsingFactoryMethod(factoryMethod)
+            .ImplementedBy<TConcrete>()
             .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(registration.Lifetime)));
+        }
+        else
+        {
+          var factoryMethod = ((Expression<Func<TConcrete>>) registration.Factory).Compile();
+          container.Register(
+            Component.For<TService>()
+              .Named(componentName)
+              .UsingFactoryMethod(factoryMethod)
+              .LifeStyle.Is(ConvertLifestyles.ToLifestyleType(registration.Lifetime)));
+        }
       }
     }
 
